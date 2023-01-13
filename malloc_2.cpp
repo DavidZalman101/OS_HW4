@@ -113,7 +113,7 @@ void LIST_MMD:: _free_(void* ptr)
 	try
 	{
 		MMD* block_to_free  = _get_mmd_(ptr);
-		block_to_free->free = true;	
+		block_to_free->is_free = true;	
 	}
 	catch(Exception& e)
 	{
