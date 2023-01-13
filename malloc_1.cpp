@@ -62,7 +62,6 @@ void* smalloc(size_t size)
 	if( program_break == (void*) _ERROR_SBRK_ )
 		return NULL;
 
-	/* Now that we allocated memory we will return the previous 'current_program_break' (dont forget to ++) */
 	return program_break;
 }
 
