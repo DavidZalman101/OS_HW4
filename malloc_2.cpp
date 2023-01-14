@@ -2,18 +2,21 @@
 /*%%%%%%%%%%%%%%%%%%%%%OS_HW_WET_4%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
-
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%~~PART_II~~%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-/*%%%%%%%%%%%%%%%%%%%%%%%~~LIST~~%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%~~INCLUDES~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
+#include <unistd.h>
 #include <cstdint>
 #include <stdexcept>
-
+#include <string.h>
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%~~DEFINES~~%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 #ifndef _BIG_NUMBER_
 #define _BIG_NUMBER_ 100000000
@@ -23,7 +26,9 @@
 #define _ERROR_SBRK_ -1
 #endif
 
-
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%~~EXCEPTIONS~~%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 class Exception 	: public std::exception {};
 
@@ -31,6 +36,11 @@ class GotNullArgument 	: public Exception 	{};
 
 class ErrorSBRK 	: public Exception 	{};
 
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%~~LIST~~%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+// Momory block struct (aka. node in list)
 typedef struct MallocMetadata {
 	size_t		size;
 	bool		is_free;
@@ -38,14 +48,15 @@ typedef struct MallocMetadata {
         MallocMetadata*	prev;	
 }MMD;
 
+// The list
 class LIST_MMD {
 private:
 	MMD* list_head;
 	int  number_of_nodes;
+
+	void _insert_		(MMD*  block);
 public:
 	LIST_MMD() : list_head(NULL) {}
-	
-	void _insert_		(MMD*  block);
 
 	void _free_		(void* ptr); 
 
@@ -53,19 +64,16 @@ public:
 
 	MMD* _get_mmd_		(void* ptr);
 
+	/* Choose to make a method instead of having varibles whom need to be taken care of during runtime */
+	int _get_num_blocks_free_();
+	int _get_num_bytes_free_ ();
+
+	int _get_num_blocks_used_();
+	int _get_num_bytes_used_ ();
+
 };
 
-MMD* LIST_MMD::_get_mmd_(void* ptr)
-{
-	/* Check argument  */
-	if( ptr == NULL )
-		throw(GotNullArgument());
-	/*
-	 *--> [ Allocation i ]
-	 *--> [ Meta-Data  i ]
-	 * */
-	return (MMD*)( (uint8_t*)ptr - sizeof(MMD) );
-}
+// Implementation of the List methods
 
 void LIST_MMD::_insert_(MMD* block)
 {
@@ -80,9 +88,9 @@ void LIST_MMD::_insert_(MMD* block)
 		throw(GotNullArgument());
 
 	block->next = NULL;
-	block->perv = NULL;
+	block->prev = NULL;
 
-	if( number_of_noded == 0 )
+	if( number_of_nodes == 0 )
 		/* This is the first node in the list */
 		list_head = block;
 	else
@@ -95,7 +103,7 @@ void LIST_MMD::_insert_(MMD* block)
 		while(ptr)
 		{
 			prev = ptr;
-			ptr = ptr->next;
+			ptr  = ptr->next;
 			
 		}	
 		prev->next  = block;
@@ -112,7 +120,7 @@ void LIST_MMD:: _free_(void* ptr)
 		throw(GotNullArgument());
 	try
 	{
-		MMD* block_to_free  = _get_mmd_(ptr);
+		MMD* block_to_free     = _get_mmd_(ptr);
 		block_to_free->is_free = true;	
 	}
 	catch(Exception& e)
@@ -140,20 +148,19 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 	/* We must allocate more memory on the heap         */
 
 	size_t allocation_size = size + sizeof(MMD);
-	void* program_break = sbrk(allocation_size);
+	void* program_break    = sbrk(allocation_size);
 
 	/* Check if we succesfully allocated more memory (moved the program break) */
 	if( program_break == (void*)_ERROR_SBRK_ )
 		throw ErrorSBRK();
 
-	MMD* new_block_to_add = (MMD*)program_break;
+	MMD* new_block_to_add     = (MMD*)program_break;
 
-	new_block_to_add->size = size;
+	new_block_to_add->size    = size;
 	new_block_to_add->is_free = false;
-	new_block_to_add->next = NULL;
-	new_block_to_add->prev = NULL;
+	new_block_to_add->next    = NULL;
+	new_block_to_add->prev    = NULL;
 
-	
 	try
 	{
 		_insert_(new_block_to_add);
@@ -166,13 +173,82 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 	return NULL;
 }
 
+MMD* LIST_MMD::_get_mmd_(void* ptr)
+{
+	/* Check argument  */
+	if( ptr == NULL )
+		throw(GotNullArgument());
+	/*
+	 *--> [ Allocation i ]
+	 *--> [ Meta-Data  i ]
+	 * */
+	return (MMD*)( (uint8_t*)ptr - sizeof(MMD) );
+}
 
+int LIST_MMD::_get_num_blocks_free_()
+{
+	MMD* ptr     = list_head;
+	int  counter = 0;
 
+	while( ptr != NULL )
+	{
+		if( ptr->is_free == true )
+			counter++;
+		ptr++;
+	}	
+	return counter;
+}
 
+int LIST_MMD::_get_num_bytes_free_ ()
+{
+	MMD*  ptr    = list_head;
+	int  counter = 0;
+
+	while( ptr != NULL )
+	{
+		if( ptr->is_free == true )
+			counter += (int)ptr->size;
+		ptr++;
+	}	
+	return counter;
+
+}
+
+int LIST_MMD::_get_num_blocks_used_()
+{
+	MMD* ptr     = list_head;
+	int  counter = 0;
+
+	while( ptr != NULL )
+	{
+		if( ptr->is_free == false )
+			counter++;
+		ptr++;
+	}	
+	return counter;
+}
+
+int LIST_MMD::_get_num_bytes_used_ ()
+{
+	MMD*  ptr    = list_head;
+	int  counter = 0;
+
+	while( ptr != NULL )
+	{
+		if( ptr->is_free == false )
+			counter += (int)ptr->size;
+		ptr++;
+	}	
+	return counter;
+}
+
+// GLOBAL LIST
+
+LIST_MMD memory_list_ = LIST_MMD();
 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
- *  |	void* smalloc(size_t_size)									 |
+ *  |	void* smalloc(size_t size)									 |
  *  |													 |
  *  |	Searches for a free block with at least 'size' bytes or allocated (sbrk()) one if none are found.|
  *  |													 |
@@ -187,9 +263,32 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+void* smalloc(size_t size)
+{
+	/* Check arguments */
+	if( size <= 0 || size > _BIG_NUMBER_ )
+		return NULL;
+
+	try
+	{
+		/* Allocate  */
+		void* ptr = memory_list_._allocate_block_(size);
+
+		if( ptr == NULL )
+			return NULL;
+
+		return ( (uint8_t*)ptr + sizeof(MMD) );
+	}
+	catch(Exception& e)
+	{
+		return NULL;
+	}
+	return NULL;
+}
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
- *  |	void* scalloc(size_t_num, size_t size)							         |
+ *  |	void* scalloc(size_t num, size_t size)							         |
  *  |													 |
  *  |	Searches for a free block with at least 'num' elements, each 'size' bytes that are all set to 0  |
  *  |   or allocates if none are found. In other words, find/allocate 'size' * 'num' bytes and set all   |
@@ -206,6 +305,29 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+void* scalloc(size_t num, size_t size)
+{
+	/* Check arguments */
+	if( num <= 0 || size > _BIG_NUMBER_ )
+		return NULL;	
+	
+	try
+	{
+		/* Find/Allocate num*size bytes  */
+		void* ptr = smalloc(num * size);
+		if( ptr == NULL )
+			return NULL;
+
+		/* Zero them up  */
+		return memset(ptr,0,num*size);
+	}
+	catch(Exception& e)
+	{
+		return NULL;
+	}
+	return NULL;
+}
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	void sfree(void* p)                 							         |
@@ -216,6 +338,23 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *  |													 |
  *   ---------------------------------------------------------------------------------------------------- 
  * */
+
+void sfree(void* p)
+{
+	/* Check arguments */
+	if( p == NULL )
+		return;
+
+	try
+	{
+		// Presuming 'p' truly points to a begining of an allocated block
+		memory_list_._free_(p);
+	}
+	catch(Exception& e)
+	{
+		return;
+	}
+}
 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
@@ -241,6 +380,46 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+void* srealloc(void* oldp, size_t size)
+{
+	/* Check arguments */
+	if( size <= 0 || size > _BIG_NUMBER_ )
+		return NULL;
+
+	try
+	{
+		if( oldp == NULL )
+			return smalloc(size);
+
+		/* Find the current size of the block of oldp */
+		size_t size_of_oldp_block = memory_list_._get_mmd_(oldp)->size;
+
+		/* Do we really need to allocate a new memory block? */
+		//No
+		if( size_of_oldp_block >= size )
+			return oldp;
+		//Yes
+		else
+		{
+			void* newp = smalloc(size);
+			if( newp == NULL )
+				return NULL;
+			if( memmove(newp, oldp, size_of_oldp_block) != newp )
+				return NULL;	
+			/* Succesfully allocated+moved the memory */
+			/* Free the oldp block  */
+			memory_list_._free_(oldp);
+			return newp;
+		}
+	
+	}
+	catch(Exception& e)
+	{
+		return NULL;
+	}
+	return NULL;
+}
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	size_t _num_free_blocks():          							         |
@@ -249,6 +428,11 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *  |													 |
  *   ---------------------------------------------------------------------------------------------------- 
  * */
+
+size_t _num_free_blocks()
+{
+	return memory_list_._get_num_blocks_free_();
+}
 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
@@ -260,6 +444,11 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+size_t _num_free_bytes()
+{
+	return memory_list_._get_num_bytes_free_();
+}
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	size_t _num_allocated_bytes():      							         |
@@ -270,6 +459,11 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+size_t _num_allocated_bytes()
+{
+	return memory_list_._get_num_bytes_used_();
+}
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	size_t _num_meta_data_bytes():      							         |
@@ -278,6 +472,11 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *  |													 |
  *   ---------------------------------------------------------------------------------------------------- 
  * */
+
+size_t _num_meta_data_bytes()
+{
+	return memory_list_._get_num_blocks_free_() * sizeof(MMD);
+}
 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
@@ -288,5 +487,7 @@ void* LIST_MMD:: _allocate_block_(size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
-
-
+size_t _size_meta_data()
+{
+	return sizeof(MMD);
+}
