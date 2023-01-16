@@ -110,6 +110,14 @@ public:
 
 	bool _node_is_in_list_mmap_ (MMD* node);
 
+	MMD* _get_left_neighbor_(MMD* node);
+
+	MMD* _get_right_neighbor_(MMD* node);
+
+	MMD* get_wilderness_node();
+
+	MMD* _merge_nodes_(MMD* node_left, MMD* node_right);
+
 	LIST_MMD() : list_free_head(NULL),    list_used_head(NULL),    list_mmap_head(NULL),   wilderness_node(NULL),
        	         number_of_nodes_free(0), number_of_nodes_used(0), number_of_nodes_mmap(0) {}
 
@@ -350,6 +358,44 @@ void LIST_MMD::_remove_mmap_list_(MMD* node)
 	number_of_nodes_mmap--;
 }
 
+MMD* LIST_MMD::_get_left_neighbor_(MMD* node)
+{
+	if( node == NULL )
+		throw(GotNullArgument());
+
+	MMD* ptr = memory_list_.list_free_head;
+
+	while( ptr != NULL )
+	{
+		if( ptr + sizeof(MMD) + ptr->size == node )
+			return ptr;
+		ptr = ptr->next;
+	}
+	return NULL;
+}
+
+MMD* LIST_MMD::_get_right_neighbor_(MMD* node)
+{
+	if( node == NULL )
+		throw(GotNullArgument());
+
+	MMD* ptr = memory_list_.list_free_head;
+
+	while( ptr != NULL )
+	{
+		if( node + sizeof(MMD) + node->size == ptr )
+			return ptr;
+		ptr = ptr->next;
+	}
+	return NULL;
+}
+
+MMD* LIST_MMD::get_wilderness_node()
+{
+	_update_wilderness_();
+	return wilderness_node;
+}
+
 void LIST_MMD::_update_wilderness_()
 {
 	MMD* ptr_free = list_free_head;
@@ -365,6 +411,23 @@ void LIST_MMD::_update_wilderness_()
 		if( ptr_used > wilderness_node )
 			wilderness_node = ptr_used;
 	}
+}
+
+
+//NOTE: The method takes into account that both nodes are not in the list
+MMD* LIST_MMD::_merge_nodes_(MMD* node_left, MMD* node_right)
+{
+	if( node_left == NULL || node_right == NULL )
+		throw(GotNullArgument());
+
+	MMD* merged 		= node_left;
+	merged->size 	   += (sizeof(MMD) + node_right->size);
+	merged->prev 		= NULL;
+	merged->next 		= NULL;
+	merged->_cookie_ 	= global_cookie;
+	merged->is_free 	= true;
+
+	return merged;	
 }
 
 void LIST_MMD:: _free_(void* ptr)
@@ -584,10 +647,14 @@ void smalloc_helper(MMD* ptr, size_t size)
 	/* Check arguments */
 	if( size <= 0 || size > _BIG_NUMBER_ || ptr == NULL )
 		throw(GotNullArgument());
+	
+	/* Check if block was allocated by mmap */
+	if( size >= _MMAP_MIN_SIZE_ ) 
+		return;
 
 	MMD* block_ = (MMD*)ptr;
 
-	/* Check if the block chosen is 'too bog' and should be split */
+	/* Check if the block chosen is 'too big' and should be split */
 	size_t size_rem = block_->size - size;
 	if (size_rem < 128 )
 		return;
@@ -720,6 +787,8 @@ void sfree_helper(MMD* block)
 		/* Check for right niehgbor */
 		else if( current + sizeof(MMD) + current->size == ptr )
 			right_neighbor = ptr;
+		
+		ptr = ptr->next;
 	}
 
 	MMD* merged = NULL;
@@ -731,12 +800,9 @@ void sfree_helper(MMD* block)
 		memory_list_._remove_free_list_(left_neighbor);
 
 		/* merge the left_neighbor with current */
-		merged 		     = left_neighbor;
-		merged->size    += (sizeof(MMD) + current->size);
-		merged->prev 	 = NULL;
-		merged->next 	 = NULL;
-		merged->_cookie_ = global_cookie;
-		merged->is_free  = true;
+		merged = memory_list_._merge_nodes_(left_neighbor,current);
+		if( merged == NULL )
+			return;
 	}
 	
 	/* Check if right neighbor should be merged */
@@ -747,16 +813,16 @@ void sfree_helper(MMD* block)
 
 		/* merge the right with current/merged */
 		if( merged != NULL )
-			merged->size    += ( sizeof(MMD) + right_neighbor->size );
-
+		{
+			merged = memory_list_._merge_nodes_(merged, right_neighbor);
+			if( merged == NULL )
+				return;
+		}
 		else
 		{
-			merged 		     = current;
-			merged->size    += (sizeof(MMD) + right_neighbor->size);
-			merged->prev 	 = NULL;
-			merged->next 	 = NULL;
-			merged->_cookie_ = global_cookie;
-			merged->is_free  = true;
+			merged = memory_list_._merge_nodes_(current, right_neighbor);
+			if( merged == NULL )
+				return;
 		}
 	}
 
@@ -815,11 +881,155 @@ void sfree(void* p)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+void* srealloc_helper_mmap_block(void* oldp, size_t size)
+{
+	MMD* original_block = memory_list_._get_mmd_(oldp);
+	if( original_block == NULL )
+		return NULL;
+
+
+	size_t size_of_oldp_block = original_block->size;
+
+	/* Allocate a new block with 'size' size */
+	MMD* new_block = (MMD*)mmap(NULL, size + sizeof(MMD), PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
+	if( new_block == MAP_FAILED )
+		return NULL;
+	new_block->is_free = false;
+	new_block->size = size;
+	new_block->next = NULL;
+	new_block->prev = NULL;
+	new_block->_cookie_ = global_cookie;
+
+	//Copy the data from the original block to the new block 
+	if( memmove(new_block + sizeof(MMD), oldp, size_of_oldp_block) != new_block )
+		return NULL;	
+
+	/* Remove the old block from the mmap list  */
+	memory_list_._remove_mmap_list_(original_block);
+
+	/* Insert the new block to the mmap list */
+	memory_list_._insert_mmap_list_(new_block);
+
+	/* Delete\Clear the old block */
+	if( munmap(original_block, size_of_oldp_block + sizeof(MMD)) != 0 )
+		return NULL;
+	return new_block + sizeof(MMD);
+}
+
+void*  srealloc_helper_wilderness(void* oldp, size_t size)
+{
+	/* Check arguments */
+	if( oldp == NULL || size <= 0 || size > _BIG_NUMBER_ )
+		throw GotNullArgument();
+
+	/* Get the block for oldp */
+	MMD* original_block = memory_list_._get_mmd_(oldp);
+
+	/* remove him from the used list*/
+	memory_list_._remove_used_list_(original_block);
+
+	/* Check if the left  neighbor is free */
+	MMD* left_neighbor = memory_list_._get_left_neighbor_(memory_list_._get_mmd_(oldp));
+	
+	MMD* merged = NULL;
+
+	if( left_neighbor != NULL )
+	{
+		/* He exists! */
+		/* remove the left neighbor from the list */
+		memory_list_._remove_free_list_(left_neighbor);
+
+		/* merge the nodes */
+		merged = memory_list_._merge_nodes_(left_neighbor,original_block);
+	}
+
+	/* Check if we have enough space */
+	if( merged->size < size )
+	{
+		/* We don't have enogh space */
+		/* Enlarge the wilderness */
+		size_t rem = size - merged->size;
+		void* program_break = sbrk(rem);
+
+		if( program_break == (void*)_ERROR_SBRK_ )
+			throw ErrorSBRK();
+
+		MMD* rem_node = (MMD*)program_break;
+		rem_node->is_free = true;
+		rem_node->next = NULL;
+		rem_node->prev = NULL;
+		rem_node->size = rem - sizeof(MMD);
+		rem_node->_cookie_ = global_cookie;
+
+		/* merge the nodes */
+		merged = memory_list_._merge_nodes_(merged, rem_node);
+		if( merged == NULL )
+			return;
+	}	
+	/* We have enought space */
+	/* Copy the data to merge */
+	if( memmove(merged + sizeof(MMD), oldp, original_block->size) != merged + sizeof(MMD) )
+		return;
+	/* Insert to the used list */
+	memory_list_._insert_used_list_(merged);
+
+	return merged + sideof(MMD);
+}
+
+
 void* srealloc(void* oldp, size_t size)
 {
 	/* Check arguments */
-	if( size <= 0 || size > _BIG_NUMBER_ )
+	if( size <= 0 || size > _BIG_NUMBER_ || oldp == NULL )
 		return NULL;
+
+
+	try
+	{
+		MMD* original_block = memory_list_._get_mmd_(oldp);
+		if( original_block == NULL )
+			return NULL;
+
+		size_t size_of_oldp_block = original_block->size;
+
+		// a.
+		/* Check if the current size is enough */
+		if( size_of_oldp_block >= size )
+			return;		
+		
+		/*  Check if we are dealing with a mmap block */
+		if( size_of_oldp_block >= _MMAP_MIN_SIZE_ )
+		{
+			return srealloc_helper_mmap_block(oldp, size);
+		}
+		/* Check if we are the wilderness node */
+		else if( memory_list_.get_wilderness_node() == original_block ) 
+		{
+			return srealloc_helper_wilderness(oldp, size);
+		}
+		/* We are just a node in the heap (not the wilderness node) */
+		else
+		{
+			//TODO: continue from here
+		}
+
+
+
+		
+		
+		
+
+
+
+
+	}
+	catch(Exception& e)
+	{
+		return NULL;
+	}
+	
+
+
 
 	try
 	{
