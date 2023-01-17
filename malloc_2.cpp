@@ -1,5 +1,5 @@
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-/*%%%%%%%%%%%%%%%%%%%%%OS_HW_WET_4%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%~~OS_HW_WET_4~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
@@ -14,27 +14,30 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string.h>
+
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%~~DEFINES~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 #ifndef _BIG_NUMBER_
-#define _BIG_NUMBER_ 100000000
+#define _BIG_NUMBER_ (100000000)
 #endif
 
 #ifndef _ERROR_SBRK_
-#define _ERROR_SBRK_ -1
+#define _ERROR_SBRK_ (-1)
 #endif
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%~~EXCEPTIONS~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
-class Exception 	: public std::exception {};
+class Exception 			: public std::exception 	{};
 
-class GotNullArgument 	: public Exception 	{};
+class GotNullArgument 		: public Exception 			{};
 
-class ErrorSBRK 	: public Exception 	{};
+class ErrorSBRK 			: public Exception 			{};
+
+class ErrorBlockNotInList	: public Exception			{};
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%~~LIST~~%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
@@ -54,9 +57,13 @@ private:
 	MMD* list_head;
 	int  number_of_nodes;
 
-	void _insert_		(MMD*  block);
+	void _insert_(MMD*  block);
+
+	bool _node_is_in_list_(MMD* block);
+
 public:
-	LIST_MMD() : list_head(NULL) {}
+
+	LIST_MMD() : list_head(NULL), number_of_nodes(0) {}
 
 	void _free_		(void* ptr); 
 
@@ -73,19 +80,24 @@ public:
 
 };
 
-// Implementation of the List methods
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%~~LIST METHODS IMPLEMENTATIONS~~%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
+/*_____________________________________________________________________________________________________________*/
+
+/*
+ * 	Inserts the given block of memory into the end of the list.
+ * 	Reminder: This is a sorted list, by size, nodes with similar sizes are sorted by address.
+ * 
+ *	Return value: None 
+ */
 
 void LIST_MMD::_insert_(MMD* block)
 {
-	//NOTE: once the 'size' field in the metadata is set for a block in this section in the metadata
-	//	it's now going to change! I could optimize it and merge blocks. But those are the demands.
-	
-	//NOTE: This is a sorted list. Meaning the address of a block_a which comes before block_b is lower
-	//	than block_b address.
-
 	/* Check arguments  */
 	if( block == NULL )
-		throw(GotNullArgument());
+		throw GotNullArgument();
 
 	block->next = NULL;
 	block->prev = NULL;
@@ -95,6 +107,7 @@ void LIST_MMD::_insert_(MMD* block)
 		list_head = block;
 	else
 	{
+		/* The list is not empty */
 		MMD* ptr  = list_head;	
 		MMD* prev = NULL;
 
@@ -112,16 +125,27 @@ void LIST_MMD::_insert_(MMD* block)
 	number_of_nodes++;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/*
+ *	Assign the block of ptr to be 'free' 
+ * 
+ * 	Return value: None
+ */
 
 void LIST_MMD:: _free_(void* ptr)
 {
-	/* Check arguments  */
-	if( ptr == NULL )
-		throw(GotNullArgument());
 	try
 	{
-		MMD* block_to_free     = _get_mmd_(ptr);
-		block_to_free->is_free = true;	
+		/* Check arguments */
+		if( ptr == NULL )
+			throw GotNullArgument();
+		/* Check if Given argument is even in the list */
+		if( _node_is_in_list_( _get_mmd_(ptr) ) == false )
+			throw ErrorBlockNotInList();
+	
+			MMD* block_to_free     = _get_mmd_(ptr);
+			block_to_free->is_free = true;	
 	}
 	catch(Exception& e)
 	{
@@ -129,19 +153,31 @@ void LIST_MMD:: _free_(void* ptr)
 	}
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/*
+ *	We iterate over the list of memory nodes with hopes to find a node which contains a size big enough
+ *	to the size asked for.
+ *	If found: great, announce him as 'not_free' and return his pointer.
+ *
+ *	Other wise: push the program break 'size' bytes and add him to the list.
+ *
+ *	Return value: a pointer to the memory (not the MMD*)
+ */
 
 void* LIST_MMD:: _allocate_block_(size_t size)
 {
 	/* Try and find a block that already exists which is free and his size is >= of 'size'  */	
 	MMD* ptr = list_head;
-	while(ptr)
+	while( ptr != NULL )
 	{
 		/* Check if we found a memory block which is free and has enough space  */
 		if( ptr->is_free == true && ptr->size >= size )
 		{
 			ptr->is_free = false;
-			return ptr;
+			return ptr + sizeof(MMD);
 		}
+		ptr = ptr->next;
 	}
 
 	/* We didn't find a free block which is big enough  */
@@ -164,7 +200,7 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 	try
 	{
 		_insert_(new_block_to_add);
-		return program_break;
+		return program_break + sizeof(MMD);
 	}
 	catch(Exception& e)
 	{
@@ -173,17 +209,22 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 	return NULL;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
 MMD* LIST_MMD::_get_mmd_(void* ptr)
 {
 	/* Check argument  */
 	if( ptr == NULL )
 		throw(GotNullArgument());
-	/*
-	 *--> [ Allocation i ]
-	 *--> [ Meta-Data  i ]
-	 * */
+	
+	/* Check if ptr block is in the list */
+	if( _node_is_in_list_( _get_mmd_(ptr) ) == false )
+		throw ErrorBlockNotInList();
+
 	return (MMD*)( (uint8_t*)ptr - sizeof(MMD) );
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 int LIST_MMD::_get_num_blocks_free_()
 {
@@ -194,10 +235,12 @@ int LIST_MMD::_get_num_blocks_free_()
 	{
 		if( ptr->is_free == true )
 			counter++;
-		ptr++;
+		ptr = ptr->next;
 	}	
 	return counter;
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 int LIST_MMD::_get_num_bytes_free_ ()
 {
@@ -208,11 +251,12 @@ int LIST_MMD::_get_num_bytes_free_ ()
 	{
 		if( ptr->is_free == true )
 			counter += (int)ptr->size;
-		ptr++;
+		ptr = ptr->next;
 	}	
 	return counter;
-
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 int LIST_MMD::_get_num_blocks_used_()
 {
@@ -223,10 +267,12 @@ int LIST_MMD::_get_num_blocks_used_()
 	{
 		if( ptr->is_free == false )
 			counter++;
-		ptr++;
+		ptr = ptr->next;
 	}	
 	return counter;
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 int LIST_MMD::_get_num_bytes_used_ ()
 {
@@ -237,12 +283,32 @@ int LIST_MMD::_get_num_bytes_used_ ()
 	{
 		if( ptr->is_free == false )
 			counter += (int)ptr->size;
-		ptr++;
+		ptr = ptr->next;
 	}	
 	return counter;
 }
 
-// GLOBAL LIST
+/*_____________________________________________________________________________________________________________*/
+
+bool LIST_MMD::_node_is_in_list_(MMD* block)
+{
+	/* Check arguments */
+	if( block == NULL )
+	throw GotNullArgument();
+
+	MMD* ptr = list_head;
+	while( ptr != NULL )
+	{
+		if( block == ptr )
+			return true;
+		ptr = ptr->next;
+	}
+	return false;
+}
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%~~GLOBAL_LIST~~%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 LIST_MMD memory_list_ = LIST_MMD();
 
@@ -401,15 +467,19 @@ void* srealloc(void* oldp, size_t size)
 		//Yes
 		else
 		{
+			/* Add a new block with 'size' into the list */
 			void* newp = smalloc(size);
+
 			if( newp == NULL )
 				return NULL;
-			if( memmove(newp, oldp, size_of_oldp_block) != newp )
+			
+			/* Copy the data to the new block */
+			if( memmove(newp + sizeof(MMD), oldp, size_of_oldp_block) != newp )
 				return NULL;	
 			/* Succesfully allocated+moved the memory */
 			/* Free the oldp block  */
 			memory_list_._free_(oldp);
-			return newp;
+			return newp + sizeof(MMD);
 		}
 	
 	}
