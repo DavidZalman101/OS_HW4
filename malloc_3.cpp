@@ -1,5 +1,5 @@
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
-/*%%%%%%%%%%%%%%%%%%%%%OS_HW_WET_4%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%~~OS_HW_WET_4~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%~~DEFINES~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
@@ -42,21 +43,19 @@
 
 class Exception 		: public std::exception {};
 
-class GotNullArgument 	: public Exception 		{};
-
 class ErrorSBRK 		: public Exception 		{};
 
 class CookieError		: public Exception 		{};
 
 class MmapError			: public Exception 		{};
 
+class ArgumentError		: public Exception		{};
 
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%~~GLOBAL_COOKIE~~%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
-
-// GLOBAL COOKIE
 int global_cookie = rand() % _COOKIE_BOUND_;
-
-
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%~~LIST~~%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
@@ -87,7 +86,7 @@ public:
 
 	MMD* wilderness_node;
 
-
+	/* INSERT \ REMOVE METHODS */
 	void _insert_free_list_	(MMD*  block);
 
 	void _insert_used_list_	(MMD*  block);
@@ -100,34 +99,41 @@ public:
 	
 	void _remove_mmap_list_ (MMD* node);
 
-	//void _remove_mmap_list_	(MMD*  block);
-
+	/* UPDATE \ GET WIDLERNESS*/
 	void _update_wilderness_();
 
+	MMD* get_wilderness_node();
+
+	/* NODE IS IN LIST */
 	bool _node_is_in_list_free_ (MMD* node);
 
 	bool _node_is_in_list_used_ (MMD* node);
 
 	bool _node_is_in_list_mmap_ (MMD* node);
 
+	/* GET RIGHT\ LEFT NEIGHBOR */
 	MMD* _get_left_neighbor_(MMD* node);
 
 	MMD* _get_right_neighbor_(MMD* node);
 
-	MMD* get_wilderness_node();
 
+	/* MERGE NODES */
 	MMD* _merge_nodes_(MMD* node_left, MMD* node_right);
 
+	/* CONSTRUCTOR */
 	LIST_MMD() : list_free_head(NULL),    list_used_head(NULL),    list_mmap_head(NULL),   wilderness_node(NULL),
        	         number_of_nodes_free(0), number_of_nodes_used(0), number_of_nodes_mmap(0) {}
 
+	/* FREE */
 	void _free_		(void* ptr); 
 
+	/* ALLOCATE BLOCK */
 	MMD* _allocate_block_ 	(size_t size);
 
+	/* GET MMD */
 	MMD* _get_mmd_		(void* ptr);
 
-	/* Choose to make a method instead of having varibles whom need to be taken care of during runtime */
+	/* GET GENERAL DATA */
 	int _get_num_blocks_free_();
 
 	int _get_num_bytes_free_ ();
@@ -138,26 +144,27 @@ public:
 
 };
 
-// Implementation of the List methods
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%~~LIST METHODS IMPLEMENTATIONS~~%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
+/*_____________________________________________________________________________________________________________*/
 
-// Changes: the insert method was changed such so the list will be sorted
+/* Insert the given block into the list of free memory nodes and update the number of nodes int he free list */
+// NOTE: this is a sorted list: by size, nodes equal by size are sorted by address
 void LIST_MMD::_insert_free_list_(MMD* block)
 {
-	//NOTE: This is a sorted list (by size)
-	//	nodes equal by size are sorted by address
-
 	/* Check arguments  */
 	if( block == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	block->next = NULL;
 	block->prev = NULL;
 
 	int block_size = block->size;
 
+	/* Check if this is the first node in the list */
 	if( number_of_nodes_free == 0 )
-		/* This is the first node in the list */
 		list_free_head = block;
 	else
 	{
@@ -201,11 +208,15 @@ void LIST_MMD::_insert_free_list_(MMD* block)
 	number_of_nodes_free++;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Insert the node intio the used list and update the number of nodes in the list */
+// NOTE: list is not ordered
 void LIST_MMD::_insert_used_list_(MMD* block)
 {
 	/* Check arguments */
 	if( block == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	/* Insert the block to the head of the list */
 	block->next 	= NULL;
@@ -223,10 +234,14 @@ void LIST_MMD::_insert_used_list_(MMD* block)
 	number_of_nodes_used++;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/*Inser to the mmap list and update the number of nodes in the list */
+// NOTE: list is not ordered
 void LIST_MMD::_insert_mmap_list_(MMD* block)
 {
 	if( block == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	block->next 	= NULL;
 	block->prev 	= NULL;
@@ -243,11 +258,14 @@ void LIST_MMD::_insert_mmap_list_(MMD* block)
 	number_of_nodes_mmap++;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Check if the given node is in the free list */
 bool LIST_MMD::_node_is_in_list_free_(MMD* node)
 {
 	/* Check arguments */
 	if( node == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	MMD* ptr = list_free_head;
 	while( ptr != NULL )
@@ -259,10 +277,13 @@ bool LIST_MMD::_node_is_in_list_free_(MMD* node)
 	return false;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Check if the given node is in the used list */
 bool LIST_MMD::_node_is_in_list_used_(MMD* node)
 {
 	if( node == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	MMD* ptr = list_used_head;
 	while( ptr != NULL )
@@ -274,10 +295,13 @@ bool LIST_MMD::_node_is_in_list_used_(MMD* node)
 	return false;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* check if the given node is in the mmap list */
 bool LIST_MMD::_node_is_in_list_mmap_(MMD* node)
 {
 	if( node == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	MMD* ptr = list_mmap_head;
 	while( ptr != NULL )
@@ -289,10 +313,13 @@ bool LIST_MMD::_node_is_in_list_mmap_(MMD* node)
 	return false;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/*  Remove the given node from the free list */
 void LIST_MMD::_remove_free_list_(MMD* node)
 {
 	if( node == NULL || number_of_nodes_free == 0 )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	// Special case: node is the head of the list
 	if( node == list_free_head )
@@ -312,10 +339,13 @@ void LIST_MMD::_remove_free_list_(MMD* node)
 	number_of_nodes_free--;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Remove the given node from the used list */
 void LIST_MMD::_remove_used_list_(MMD* node)
 {
 	if( node == NULL || number_of_nodes_used == 0 )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	// Special case: node is the head of the list
 	if( node == list_used_head )
@@ -335,10 +365,13 @@ void LIST_MMD::_remove_used_list_(MMD* node)
 	number_of_nodes_used--;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Remove the given node from the mmap list */
 void LIST_MMD::_remove_mmap_list_(MMD* node)
 {
 	if( node == NULL || number_of_nodes_mmap == 0 )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	// Special case: node is the head of the list
 	if( node == list_mmap_head )
@@ -358,10 +391,13 @@ void LIST_MMD::_remove_mmap_list_(MMD* node)
 	number_of_nodes_mmap--;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Find the right neighbor of the given node only if he is free */
 MMD* LIST_MMD::_get_left_neighbor_(MMD* node)
 {
 	if( node == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	MMD* ptr = memory_list_.list_free_head;
 
@@ -374,10 +410,13 @@ MMD* LIST_MMD::_get_left_neighbor_(MMD* node)
 	return NULL;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Find the right neighbor of the given node only if he is free */
 MMD* LIST_MMD::_get_right_neighbor_(MMD* node)
 {
 	if( node == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	MMD* ptr = memory_list_.list_free_head;
 
@@ -390,12 +429,18 @@ MMD* LIST_MMD::_get_right_neighbor_(MMD* node)
 	return NULL;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Get the wilderness node */
 MMD* LIST_MMD::get_wilderness_node()
 {
 	_update_wilderness_();
 	return wilderness_node;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Update who is the wilderness node */
 void LIST_MMD::_update_wilderness_()
 {
 	MMD* ptr_free = list_free_head;
@@ -413,12 +458,14 @@ void LIST_MMD::_update_wilderness_()
 	}
 }
 
+/*_____________________________________________________________________________________________________________*/
 
+/* Merged 2 nodes into 1 node */
 //NOTE: The method takes into account that both nodes are not in the list
 MMD* LIST_MMD::_merge_nodes_(MMD* node_left, MMD* node_right)
 {
 	if( node_left == NULL || node_right == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	MMD* merged 		= node_left;
 	merged->size 	   += (sizeof(MMD) + node_right->size);
@@ -430,11 +477,14 @@ MMD* LIST_MMD::_merge_nodes_(MMD* node_left, MMD* node_right)
 	return merged;	
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Releases a node from the used node and inserts him to the free list */
 void LIST_MMD:: _free_(void* ptr)
 {
 	/* Check arguments  */
 	if( ptr == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 		
 	/* Check cookie */
 	if(  _get_mmd_(ptr)->_cookie_ != global_cookie )
@@ -469,17 +519,20 @@ void LIST_MMD:: _free_(void* ptr)
 	}
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Allocates a new block of memory (mmp, sbrk, old free blocks) and inserts it to the list (used, mmap) */
 MMD* LIST_MMD::_allocate_block_(size_t size)
 {
 	if( size <= 0 || size > _BIG_NUMBER_ )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	/* Check if size is too big for heap */
 	if(  size >= _MMAP_MIN_SIZE_ )
 	{
 		MMD* new_block = (MMD*)mmap(NULL, size + sizeof(MMD), PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
 		if( new_block == MAP_FAILED )
-			throw(MmapError());
+			throw MmapError();
 		
 		new_block->is_free = false;
 		new_block->size = size;
@@ -553,11 +606,14 @@ MMD* LIST_MMD::_allocate_block_(size_t size)
 	return NULL;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+/* Gets the mmd of a pointer */
 MMD* LIST_MMD::_get_mmd_(void* ptr)
 {
 	/* Check argument  */
 	if( ptr == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 	/*
 	 *--> [ Allocation i ]
 	 *--> [ Meta-Data  i ]
@@ -565,19 +621,16 @@ MMD* LIST_MMD::_get_mmd_(void* ptr)
 	return (MMD*)( (uint8_t*)ptr - sizeof(MMD) );
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+// EASY TO UNDERSTAND ...
+
 int LIST_MMD::_get_num_blocks_free_()
 {
-	MMD* ptr     = list_free_head;
-	int  counter = 0;
-
-	while( ptr != NULL )
-	{
-		if( ptr->is_free == true )
-			counter++;
-		ptr++;
-	}	
-	return counter;
+	return number_of_nodes_free;
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 int LIST_MMD::_get_num_bytes_free_ ()
 {
@@ -586,27 +639,20 @@ int LIST_MMD::_get_num_bytes_free_ ()
 
 	while( ptr != NULL )
 	{
-		if( ptr->is_free == true )
 			counter += (int)ptr->size;
-		ptr++;
+		ptr = ptr->next;
 	}	
 	return counter;
-
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 int LIST_MMD::_get_num_blocks_used_()
 {
-	MMD* ptr     = list_used_head;
-	int  counter = 0;
-
-	while( ptr != NULL )
-	{
-		if( ptr->is_free == false )
-			counter++;
-		ptr++;
-	}	
-	return counter;
+	return number_of_nodes_used;
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 int LIST_MMD::_get_num_bytes_used_ ()
 {
@@ -615,14 +661,18 @@ int LIST_MMD::_get_num_bytes_used_ ()
 
 	while( ptr != NULL )
 	{
-		if( ptr->is_free == false )
 			counter += (int)ptr->size;
-		ptr++;
+		ptr = ptr->next;
 	}	
 	return counter;
 }
 
-// GLOBAL LIST
+/*_____________________________________________________________________________________________________________*/
+
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%~~GLOBAL_LIST~~%%%%%%%%%%%%%%%%%%%%%*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+
 LIST_MMD memory_list_ = LIST_MMD();
 
 /*
@@ -642,11 +692,13 @@ LIST_MMD memory_list_ = LIST_MMD();
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+/*_____________________________________________________________________________________________________________*/
+
 void smalloc_helper(MMD* ptr, size_t size)
 {
 	/* Check arguments */
 	if( size <= 0 || size > _BIG_NUMBER_ || ptr == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 	
 	/* Check if block was allocated by mmap */
 	if( size >= _MMAP_MIN_SIZE_ ) 
@@ -684,6 +736,8 @@ void smalloc_helper(MMD* ptr, size_t size)
 		throw(e);
 	}
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 void* smalloc(size_t size)
 {
@@ -730,6 +784,8 @@ void* smalloc(size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+/*_____________________________________________________________________________________________________________*/
+
 void* scalloc(size_t num, size_t size)
 {
 	/* Check arguments */
@@ -753,6 +809,8 @@ void* scalloc(size_t num, size_t size)
 	return NULL;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	void sfree(void* p)                 							         |
@@ -764,12 +822,13 @@ void* scalloc(size_t num, size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+/*_____________________________________________________________________________________________________________*/
 
 void sfree_helper(MMD* block)
 {
 	/* Check arguments */
 	if( block == NULL )
-		throw(GotNullArgument());
+		throw ArgumentError();
 
 	/* Go over the free list and look for neighbors to merge with */
 	MMD* left_neighbor  = NULL;
@@ -837,6 +896,8 @@ void sfree_helper(MMD* block)
 	}
 }
 
+/*_____________________________________________________________________________________________________________*/
+
 void sfree(void* p)
 {
 	/* Check arguments */
@@ -856,6 +917,8 @@ void sfree(void* p)
 		return;
 	}
 }
+
+/*_____________________________________________________________________________________________________________*/
 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
@@ -880,6 +943,8 @@ void sfree(void* p)
  *  |													 |
  *   ---------------------------------------------------------------------------------------------------- 
  * */
+
+/*_____________________________________________________________________________________________________________*/
 
 void* srealloc_helper_mmap_block(void* oldp, size_t size)
 {
@@ -916,11 +981,13 @@ void* srealloc_helper_mmap_block(void* oldp, size_t size)
 	return new_block + sizeof(MMD);
 }
 
+/*_____________________________________________________________________________________________________________*/
+
 void*  srealloc_helper_wilderness(void* oldp, size_t size)
 {
 	/* Check arguments */
 	if( oldp == NULL || size <= 0 || size > _BIG_NUMBER_ )
-		throw GotNullArgument();
+		throw ArgumentError();
 
 	/* Get the block for oldp */
 	MMD* original_block = memory_list_._get_mmd_(oldp);
@@ -929,7 +996,7 @@ void*  srealloc_helper_wilderness(void* oldp, size_t size)
 	memory_list_._remove_used_list_(original_block);
 
 	/* Check if the left  neighbor is free */
-	MMD* left_neighbor = memory_list_._get_left_neighbor_(memory_list_._get_mmd_(oldp));
+	MMD* left_neighbor = memory_list_._get_left_neighbor_( original_block );
 	
 	MMD* merged = NULL;
 
@@ -964,18 +1031,127 @@ void*  srealloc_helper_wilderness(void* oldp, size_t size)
 		/* merge the nodes */
 		merged = memory_list_._merge_nodes_(merged, rem_node);
 		if( merged == NULL )
-			return;
+			return NULL;
 	}	
 	/* We have enought space */
 	/* Copy the data to merge */
 	if( memmove(merged + sizeof(MMD), oldp, original_block->size) != merged + sizeof(MMD) )
-		return;
+		return NULL;
 	/* Insert to the used list */
 	memory_list_._insert_used_list_(merged);
 
-	return merged + sideof(MMD);
+	return merged + sizeof(MMD);
 }
 
+/*_____________________________________________________________________________________________________________*/
+
+void* srealloc_helper_normal_node(void* oldp, size_t size)
+{
+	/* Check arguments */
+	if( oldp == NULL || size <= 0 || size > _BIG_NUMBER_ )
+		throw ArgumentError();
+	
+	MMD* original_block = memory_list_._get_mmd_(oldp);
+	
+	/* Remove the old block from the used list */
+	memory_list_._remove_used_list_(original_block);
+
+	/* Check if the left neighbor is free */
+	MMD* left_neighbor = memory_list_._get_left_neighbor_(original_block);
+
+	MMD* merged = NULL;
+
+	if( left_neighbor != NULL )
+	{
+		/* He exists! */
+		/* remove the left neighbor from the free list */
+		memory_list_._remove_free_list_(left_neighbor);
+
+		/* merge the nodes */
+		merged = memory_list_._merge_nodes_(left_neighbor, original_block);
+	}	
+	else
+		merged = original_block;
+
+	/* Check if we have enoguth spcae */
+    if( merged->size < size )
+	{
+		/* We don't have enough space */
+		/* Try and find the right neighbor */
+		MMD* right_neighbor = memory_list_._get_right_neighbor_(original_block);
+
+		if( right_neighbor != NULL )
+		{
+			/* He eixsts! */
+			/*  remove the right neighbor from the free list */
+			memory_list_._remove_free_list_(right_neighbor);
+
+			/* merge him */
+			memory_list_._merge_nodes_(merged, right_neighbor);
+		}
+
+		/* Check if we have enught space */
+		if( merged->size < size )
+		{
+			/* We don't */
+			/* Check if the right neighbor was the wilderness*/
+		if( memory_list_.get_wilderness_node() == right_neighbor )
+			{
+				//TODO: Try and use the srealloc_helper_wilderness...
+				/* He is -> enlarge the wilderness just enough */
+				/* Enlarge the wilderness */
+				size_t rem = size - merged->size;
+				void* program_break = sbrk(rem);
+
+				if( program_break == (void*)_ERROR_SBRK_ )
+					return NULL;	
+				
+				MMD* rem_node = (MMD*)program_break;
+				rem_node->is_free = true;
+				rem_node->next = NULL;
+				rem_node->prev = NULL;
+				rem_node->size = rem - sizeof(MMD);
+				rem_node->_cookie_ = global_cookie;
+
+				/* merge the nodes */
+				merged = memory_list_._merge_nodes_(merged, rem_node);
+				if( merged == NULL )
+					return NULL;
+
+				/* We have enough space */
+				/* Copy the data to merge */
+				if( memmove( merged + sizeof(MMD), oldp, original_block->size) != merged + sizeof(MMD) )
+					return NULL;
+
+				/* Insert to the used list */
+				memory_list_._insert_used_list_(merged);
+
+				return merged + sizeof(MMD);
+			}
+			else
+			{
+				/* At this point we merged with all possible neighbors and we have no wilderness */
+				
+				void* new_pointer = smalloc(size);
+
+			MMD* new_memory_block = memory_list_._get_mmd_(new_pointer);
+			
+				if( memmove (new_pointer, oldp, original_block->size) != new_pointer )
+					return NULL;
+						
+				/* Insert the merged to the free list */
+				memory_list_._insert_free_list_(merged);
+
+				/* insert eh new memory block to the used list */
+				memory_list_._insert_used_list_(new_memory_block);
+				 return new_pointer;
+			}
+		}
+		return merged + sizeof(MMD);
+	}
+}
+
+/*_____________________________________________________________________________________________________________*/
 
 void* srealloc(void* oldp, size_t size)
 {
@@ -992,45 +1168,26 @@ void* srealloc(void* oldp, size_t size)
 
 		size_t size_of_oldp_block = original_block->size;
 
-		// a.
 		/* Check if the current size is enough */
 		if( size_of_oldp_block >= size )
 			return;		
 		
 		/*  Check if we are dealing with a mmap block */
 		if( size_of_oldp_block >= _MMAP_MIN_SIZE_ )
-		{
 			return srealloc_helper_mmap_block(oldp, size);
-		}
+
 		/* Check if we are the wilderness node */
 		else if( memory_list_.get_wilderness_node() == original_block ) 
-		{
 			return srealloc_helper_wilderness(oldp, size);
-		}
+
 		/* We are just a node in the heap (not the wilderness node) */
 		else
-		{
-			//TODO: continue from here
-		}
-
-
-
-		
-		
-		
-
-
-
-
+			return srealloc_helper_normal_node(oldp, size);
 	}
 	catch(Exception& e)
 	{
 		return NULL;
 	}
-	
-
-
-
 	try
 	{
 		if( oldp == NULL )
@@ -1065,6 +1222,8 @@ void* srealloc(void* oldp, size_t size)
 	return NULL;
 }
 
+/*_____________________________________________________________________________________________________________*/
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	size_t _num_free_blocks():          							         |
@@ -1074,10 +1233,12 @@ void* srealloc(void* oldp, size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
+
 size_t _num_free_blocks()
 {
 	return memory_list_._get_num_blocks_free_();
 }
+
 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
