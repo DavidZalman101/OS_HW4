@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string.h>
 
+
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%~~DEFINES~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
@@ -132,16 +133,11 @@ void LIST_MMD:: _free_(void* ptr)
 	{
 		/* Check arguments */
 		if( ptr == NULL )
-			throw GotNullArgument();
-
-		/* Check if Given argument is even in the list */
-		if(_node_is_in_list_(_get_mmd_(ptr)) == false )
 		{
-			throw ErrorBlockNotInList();
+			return;
 		}
-	
-			MMD* block_to_free     = _get_mmd_(ptr);
-			block_to_free->is_free = true;	
+		MMD* block_to_free     = _get_mmd_(ptr);
+		block_to_free->is_free = true;	
 	}
 	catch(Exception& e)
 	{
@@ -171,7 +167,7 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 		if( ptr->is_free == true && ptr->size >= size )
 		{
 			ptr->is_free = false;
-			return ptr + sizeof(MMD);
+			return (char*)ptr + sizeof(MMD);
 		}
 		ptr = ptr->next;
 	}
@@ -179,12 +175,14 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 	/* We didn't find a free block which is big enough  */
 	/* We must allocate more memory on the heap         */
 
+
 	size_t allocation_size = size + sizeof(MMD);
 	void* program_break    = sbrk(allocation_size);
 
 	/* Check if we succesfully allocated more memory (moved the program break) */
 	if( program_break == (void*)_ERROR_SBRK_ )
 		throw ErrorSBRK();
+
 
 	MMD* new_block_to_add     = (MMD*)program_break;
 
@@ -196,7 +194,7 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 	try
 	{
 		_insert_(new_block_to_add);
-		return new_block_to_add + sizeof(MMD);
+		return (char*)new_block_to_add + sizeof(MMD);
 	}
 	catch(Exception& e)
 	{
@@ -213,11 +211,7 @@ MMD* LIST_MMD::_get_mmd_(void* ptr)
 	if( ptr == NULL )
 		throw(GotNullArgument());
 	
-	/* Check if ptr block is in the list */
-	if( _node_is_in_list_( _get_mmd_(ptr) ) == false )
-		throw ErrorBlockNotInList();
-
-	return (MMD*)( (uint8_t*)ptr - sizeof(MMD) );
+	return (MMD*)( (char*)ptr - sizeof(MMD) );
 }
 
 /*_____________________________________________________________________________________________________________*/
@@ -475,7 +469,7 @@ void* srealloc(void* oldp, size_t size)
 			/* Succesfully allocated+moved the memory */
 			/* Free the oldp block  */
 			memory_list_._free_(oldp);
-			return (MMD*)newp + sizeof(MMD);
+			return (char*)newp + sizeof(MMD);
 		}
 	}
 	catch(Exception& e)
@@ -562,3 +556,4 @@ size_t _size_meta_data()
 {
 	return sizeof(MMD);
 }
+
