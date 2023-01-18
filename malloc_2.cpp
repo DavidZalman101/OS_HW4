@@ -45,8 +45,8 @@ class ErrorBlockNotInList	: public Exception			{};
 
 // Momory block struct (aka. node in list)
 typedef struct MallocMetadata {
-	size_t		size;
-	bool		is_free;
+		size_t		size;
+		bool		is_free;
         MallocMetadata*	next;	
         MallocMetadata*	prev;	
 }MMD;
@@ -55,6 +55,7 @@ typedef struct MallocMetadata {
 class LIST_MMD {
 private:
 	MMD* list_head;
+	MMD* list_tail;
 	int  number_of_nodes;
 
 	void _insert_(MMD*  block);
@@ -63,7 +64,7 @@ private:
 
 public:
 
-	LIST_MMD() : list_head(NULL), number_of_nodes(0) {}
+	LIST_MMD() : list_head(NULL), list_tail(NULL), number_of_nodes(0) {}
 
 	void _free_		(void* ptr); 
 
@@ -93,34 +94,26 @@ public:
  *	Return value: None 
  */
 
-void LIST_MMD::_insert_(MMD* block)
+void LIST_MMD::_insert_(MMD* block) 
 {
 	/* Check arguments  */
-	if( block == NULL )
+	if (block == NULL)
 		throw GotNullArgument();
 
 	block->next = NULL;
 	block->prev = NULL;
 
-	if( number_of_nodes == 0 )
+	if (number_of_nodes == 0) {
 		/* This is the first node in the list */
 		list_head = block;
-	else
-	{
+		list_tail = block;
+	}
+	else {
 		/* The list is not empty */
-		MMD* ptr  = list_head;	
-		MMD* prev = NULL;
-
-		/* insert the node to the end of the list */
-		/* find the last node (prev) */
-		while(ptr)
-		{
-			prev = ptr;
-			ptr  = ptr->next;
-			
-		}	
-		prev->next  = block;
-		block->prev = prev;
+		list_tail->next = block;
+		block->prev = list_tail;
+		
+		list_tail = block;
 	}
 	number_of_nodes++;
 }
@@ -140,9 +133,12 @@ void LIST_MMD:: _free_(void* ptr)
 		/* Check arguments */
 		if( ptr == NULL )
 			throw GotNullArgument();
+
 		/* Check if Given argument is even in the list */
-		if( _node_is_in_list_( _get_mmd_(ptr) ) == false )
+		if(_node_is_in_list_(_get_mmd_(ptr)) == false )
+		{
 			throw ErrorBlockNotInList();
+		}
 	
 			MMD* block_to_free     = _get_mmd_(ptr);
 			block_to_free->is_free = true;	
@@ -200,7 +196,7 @@ void* LIST_MMD:: _allocate_block_(size_t size)
 	try
 	{
 		_insert_(new_block_to_add);
-		return program_break + sizeof(MMD);
+		return new_block_to_add + sizeof(MMD);
 	}
 	catch(Exception& e)
 	{
@@ -231,10 +227,10 @@ int LIST_MMD::_get_num_blocks_free_()
 	MMD* ptr     = list_head;
 	int  counter = 0;
 
-	while( ptr != NULL )
-	{
+	while (ptr != NULL) {
 		if( ptr->is_free == true )
 			counter++;
+
 		ptr = ptr->next;
 	}	
 	return counter;
@@ -247,10 +243,10 @@ int LIST_MMD::_get_num_bytes_free_ ()
 	MMD*  ptr    = list_head;
 	int  counter = 0;
 
-	while( ptr != NULL )
-	{
+	while (ptr != NULL) {
 		if( ptr->is_free == true )
 			counter += (int)ptr->size;
+
 		ptr = ptr->next;
 	}	
 	return counter;
@@ -263,8 +259,7 @@ int LIST_MMD::_get_num_blocks_used_()
 	MMD* ptr     = list_head;
 	int  counter = 0;
 
-	while( ptr != NULL )
-	{
+	while (ptr != NULL) {
 		if( ptr->is_free == false )
 			counter++;
 		ptr = ptr->next;
@@ -283,6 +278,7 @@ int LIST_MMD::_get_num_bytes_used_ ()
 	{
 		if( ptr->is_free == false )
 			counter += (int)ptr->size;
+
 		ptr = ptr->next;
 	}	
 	return counter;
@@ -294,13 +290,13 @@ bool LIST_MMD::_node_is_in_list_(MMD* block)
 {
 	/* Check arguments */
 	if( block == NULL )
-	throw GotNullArgument();
+		throw GotNullArgument();
 
 	MMD* ptr = list_head;
-	while( ptr != NULL )
-	{
+	while (ptr != NULL) {
 		if( block == ptr )
 			return true;
+
 		ptr = ptr->next;
 	}
 	return false;
@@ -343,7 +339,7 @@ void* smalloc(size_t size)
 		if( ptr == NULL )
 			return NULL;
 
-		return ( (uint8_t*)ptr + sizeof(MMD) );
+		return ptr;
 	}
 	catch(Exception& e)
 	{
@@ -474,14 +470,13 @@ void* srealloc(void* oldp, size_t size)
 				return NULL;
 			
 			/* Copy the data to the new block */
-			if( memmove(newp + sizeof(MMD), oldp, size_of_oldp_block) != newp )
+			if( memmove ( ( (MMD*)newp + sizeof(MMD) ), oldp, size_of_oldp_block ) != newp )
 				return NULL;	
 			/* Succesfully allocated+moved the memory */
 			/* Free the oldp block  */
 			memory_list_._free_(oldp);
-			return newp + sizeof(MMD);
+			return (MMD*)newp + sizeof(MMD);
 		}
-	
 	}
 	catch(Exception& e)
 	{
@@ -519,6 +514,12 @@ size_t _num_free_bytes()
 	return memory_list_._get_num_bytes_free_();
 }
 
+
+size_t _num_allocated_blocks()
+{
+	return (memory_list_._get_num_blocks_used_() + memory_list_._get_num_blocks_free_());
+}
+
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	size_t _num_allocated_bytes():      							         |
@@ -531,7 +532,7 @@ size_t _num_free_bytes()
 
 size_t _num_allocated_bytes()
 {
-	return memory_list_._get_num_bytes_used_();
+	return (memory_list_._get_num_bytes_used_() + memory_list_._get_num_bytes_free_());
 }
 
 /*
@@ -545,7 +546,7 @@ size_t _num_allocated_bytes()
 
 size_t _num_meta_data_bytes()
 {
-	return memory_list_._get_num_blocks_free_() * sizeof(MMD);
+	return ((memory_list_._get_num_blocks_free_() + memory_list_._get_num_blocks_used_()) * sizeof(MMD));
 }
 
 /*

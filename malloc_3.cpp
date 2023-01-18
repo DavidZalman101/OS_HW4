@@ -22,34 +22,39 @@
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
 #ifndef _BIG_NUMBER_
-#define _BIG_NUMBER_ 100000000
+#define _BIG_NUMBER_ (100000000)
 #endif
 
 #ifndef _ERROR_SBRK_
-#define _ERROR_SBRK_ -1
+#define _ERROR_SBRK_ (-1)
 #endif
 
 #ifndef _COOKIE_BOUND_
-#define _COOKIE_BOUND_ 10000
+#define _COOKIE_BOUND_ (10000)
 #endif
 
 #ifndef _MMAP_MIN_SIZE_
-#define _MMAP_MIN_SIZE_ 131072
+#define _MMAP_MIN_SIZE_ (131072)
 #endif
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%~~EXCEPTIONS~~%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 
-class Exception 		: public std::exception {};
+class Exception 			: public std::exception {};
 
-class ErrorSBRK 		: public Exception 		{};
+class ErrorSBRK 			: public Exception 		{};
 
-class CookieError		: public Exception 		{};
+class CookieError			: public Exception 		{};
 
-class MmapError			: public Exception 		{};
+class MmapError				: public Exception 		{};
 
-class ArgumentError		: public Exception		{};
+class ArgumentError			: public Exception		{};
+
+class ErrorBlockNotInList	: public Exception		{};
+
+class ErrorBlockAlreadyInList	: public Exception		{};
+
 
 /*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
 /*%%%%%%%%%%%%%%%%%%%%~~GLOBAL_COOKIE~~%%%%%%%%%%%%%%%%%%%%%*/
@@ -121,8 +126,8 @@ public:
 	MMD* _merge_nodes_(MMD* node_left, MMD* node_right);
 
 	/* CONSTRUCTOR */
-	LIST_MMD() : list_free_head(NULL),    list_used_head(NULL),    list_mmap_head(NULL),   wilderness_node(NULL),
-       	         number_of_nodes_free(0), number_of_nodes_used(0), number_of_nodes_mmap(0) {}
+	LIST_MMD() :  number_of_nodes_free(0), number_of_nodes_used(0), number_of_nodes_mmap(0),
+				  list_free_head(NULL),    list_used_head(NULL),    list_mmap_head(NULL),   wilderness_node(NULL) {}
 
 	/* FREE */
 	void _free_		(void* ptr); 
@@ -151,17 +156,21 @@ public:
 /*_____________________________________________________________________________________________________________*/
 
 /* Insert the given block into the list of free memory nodes and update the number of nodes int he free list */
+
 // NOTE: this is a sorted list: by size, nodes equal by size are sorted by address
 void LIST_MMD::_insert_free_list_(MMD* block)
 {
 	/* Check arguments  */
 	if( block == NULL )
 		throw ArgumentError();
+	
+	if( _node_is_in_list_free_( block ) == true )
+		throw ErrorBlockAlreadyInList();
 
 	block->next = NULL;
 	block->prev = NULL;
 
-	int block_size = block->size;
+	size_t block_size = block->size;
 
 	/* Check if this is the first node in the list */
 	if( number_of_nodes_free == 0 )
@@ -193,10 +202,12 @@ void LIST_MMD::_insert_free_list_(MMD* block)
 				}
 				break;
 			}
+			else
+				break;
 		}
 
 		/* Insert the node */
-		prev->next 	= block;
+		prev->next 		= block;
 		following->prev = block;
 
 		block->prev 	= prev;
@@ -399,7 +410,7 @@ MMD* LIST_MMD::_get_left_neighbor_(MMD* node)
 	if( node == NULL )
 		throw ArgumentError();
 
-	MMD* ptr = memory_list_.list_free_head;
+	MMD* ptr = list_free_head;
 
 	while( ptr != NULL )
 	{
@@ -418,7 +429,7 @@ MMD* LIST_MMD::_get_right_neighbor_(MMD* node)
 	if( node == NULL )
 		throw ArgumentError();
 
-	MMD* ptr = memory_list_.list_free_head;
+	MMD* ptr = list_free_head;
 
 	while( ptr != NULL )
 	{
@@ -572,9 +583,10 @@ MMD* LIST_MMD::_allocate_block_(size_t size)
 
 	size_t allocation_size = 0;
 
-	if( wilderness_node->is_free = true )
+	if( wilderness_node->is_free == true )
 		/* wildernes is free, lets enlarge him just enough */
-		size_t allocation_size = size - wilderness_node->size + sizeof(MMD); 
+		allocation_size = size - wilderness_node->size + sizeof(MMD); 
+
 	else
 		/* wilderness is not free, lets enlarge the heap by size */
 		allocation_size = size + sizeof(MMD);
@@ -649,7 +661,7 @@ int LIST_MMD::_get_num_bytes_free_ ()
 
 int LIST_MMD::_get_num_blocks_used_()
 {
-	return number_of_nodes_used;
+	return number_of_nodes_used + number_of_nodes_mmap;
 }
 
 /*_____________________________________________________________________________________________________________*/
@@ -664,6 +676,14 @@ int LIST_MMD::_get_num_bytes_used_ ()
 			counter += (int)ptr->size;
 		ptr = ptr->next;
 	}	
+
+	ptr = list_mmap_head;
+	while( ptr != NULL )
+	{
+			counter += (int)ptr->size;
+		ptr = ptr->next;
+	}	
+
 	return counter;
 }
 
@@ -702,7 +722,9 @@ void smalloc_helper(MMD* ptr, size_t size)
 	
 	/* Check if block was allocated by mmap */
 	if( size >= _MMAP_MIN_SIZE_ ) 
+	{
 		return;
+	}
 
 	MMD* block_ = (MMD*)ptr;
 
@@ -1147,8 +1169,8 @@ void* srealloc_helper_normal_node(void* oldp, size_t size)
 				 return new_pointer;
 			}
 		}
-		return merged + sizeof(MMD);
 	}
+	return merged + sizeof(MMD);
 }
 
 /*_____________________________________________________________________________________________________________*/
@@ -1170,7 +1192,7 @@ void* srealloc(void* oldp, size_t size)
 
 		/* Check if the current size is enough */
 		if( size_of_oldp_block >= size )
-			return;		
+			return oldp;		
 		
 		/*  Check if we are dealing with a mmap block */
 		if( size_of_oldp_block >= _MMAP_MIN_SIZE_ )
@@ -1183,37 +1205,6 @@ void* srealloc(void* oldp, size_t size)
 		/* We are just a node in the heap (not the wilderness node) */
 		else
 			return srealloc_helper_normal_node(oldp, size);
-	}
-	catch(Exception& e)
-	{
-		return NULL;
-	}
-	try
-	{
-		if( oldp == NULL )
-			return smalloc(size);
-
-		/* Find the current size of the block of oldp */
-		size_t size_of_oldp_block = memory_list_._get_mmd_(oldp)->size;
-
-		/* Do we really need to allocate a new memory block? */
-		//No
-		if( size_of_oldp_block >= size )
-			return oldp;
-		//Yes
-		else
-		{
-			void* newp = smalloc(size);
-			if( newp == NULL )
-				return NULL;
-			if( memmove(newp, oldp, size_of_oldp_block) != newp )
-				return NULL;	
-			/* Succesfully allocated+moved the memory */
-			/* Free the oldp block  */
-			memory_list_._free_(oldp);
-			return newp;
-		}
-	
 	}
 	catch(Exception& e)
 	{
@@ -1233,12 +1224,15 @@ void* srealloc(void* oldp, size_t size)
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
-
 size_t _num_free_blocks()
 {
 	return memory_list_._get_num_blocks_free_();
 }
 
+size_t _num_allocated_blocks()
+{
+	return memory_list_._get_num_blocks_used_() + memory_list_._get_num_blocks_free_();
+}
 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
@@ -1298,8 +1292,6 @@ size_t _size_meta_data()
 	return sizeof(MMD);
 }
 
-// SORTED LIST   []<-->[ ]<-->[  ]<-->[    ]<-->[     ]<-->...<-->[       ]<-->NULL
-// DONE - Changed the method '_insert_'
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	Challenge 0 (Memory utilization):								 |
@@ -1315,9 +1307,6 @@ size_t _size_meta_data()
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
-// 		[]<-->...<-->[required size | extra size]<-->[Too big]<-->...<-->NULL
-//	=>
-// 		[]<-->...[extra size]<-->...<-->...<-->NULL
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |   Challenge 1 (Memory utilization):								 |
@@ -1336,11 +1325,6 @@ size_t _size_meta_data()
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
-
-
-// 		[]<-->...[neighbor to the right]<-->[neighbor to the righr]<-->...<-->NULL
-//	=>
-// 		[]<-->...[merged neighbors]<-->...<-->NULL
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	Challenge 2 (Memory utilization):								 |
@@ -1354,9 +1338,6 @@ size_t _size_meta_data()
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
-// No node is big enough?
-// Is wilderness a free block?
-// Enlarge him 
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	Challenge 3 (Memory utilization):								 |
@@ -1374,8 +1355,6 @@ size_t _size_meta_data()
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
-// size >= 128kb?
-// Use mmap?...
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	Challege 4 (large allocations):									 |
@@ -1393,8 +1372,6 @@ size_t _size_meta_data()
  *   ---------------------------------------------------------------------------------------------------- 
  * */
 
-// Cookie
-// create a global cookie and add it to the metadata struct.
 /*
  *   ---------------------------------------------------------------------------------------------------- 
  *  |	Challnge 5 (Safety & Security):									 |
