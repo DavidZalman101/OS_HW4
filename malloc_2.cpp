@@ -464,12 +464,12 @@ void* srealloc(void* oldp, size_t size)
 				return NULL;
 			
 			/* Copy the data to the new block */
-			if( memmove ( ( (MMD*)newp + sizeof(MMD) ), oldp, size_of_oldp_block ) != newp )
+			if( memmove(newp, oldp, size_of_oldp_block) != newp )
 				return NULL;	
 			/* Succesfully allocated+moved the memory */
 			/* Free the oldp block  */
 			memory_list_._free_(oldp);
-			return (char*)newp + sizeof(MMD);
+			return newp;
 		}
 	}
 	catch(Exception& e)
@@ -556,4 +556,3 @@ size_t _size_meta_data()
 {
 	return sizeof(MMD);
 }
-
