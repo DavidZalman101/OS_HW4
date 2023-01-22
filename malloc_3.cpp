@@ -73,7 +73,18 @@ typedef struct MallocMetadata {
 	bool		is_free;
         MallocMetadata*	next;	
         MallocMetadata*	prev;	
+
+	struct MallocMetadata* operator->()
+	{
+		if( _cookie_ != global_cookie )
+			exit(0xdeadbeef);
+		return this;
+	};
+	
+
 }MMD;
+
+
 
 // The list
 class LIST_MMD {
