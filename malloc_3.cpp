@@ -74,14 +74,6 @@ typedef struct MallocMetadata {
         MallocMetadata*	next;	
         MallocMetadata*	prev;	
 
-	struct MallocMetadata* operator->()
-	{
-		if( _cookie_ != global_cookie )
-			exit(0xdeadbeef);
-		return this;
-	};
-	
-
 }MMD;
 
 
@@ -272,6 +264,7 @@ void LIST_MMD::_insert_used_list_(MMD* block_to_insert)
 
 	block_to_insert->next 	= NULL;
 	block_to_insert->prev 	= NULL;
+	block_to_insert->_cookie_ = global_cookie;
 
 	MMD* ptr = list_used_head;
 
@@ -296,6 +289,7 @@ void LIST_MMD::_insert_mmap_list_(MMD* block_to_insert)
 
 	block_to_insert->next 	= NULL;
 	block_to_insert->prev 	= NULL;
+	block_to_insert->_cookie_ = global_cookie;
 
 	MMD* ptr 		= list_mmap_head;
 
@@ -945,7 +939,7 @@ void sfree_helper(MMD* block)
 	/* Check arguments */
 	if( block == NULL )
 		throw ArgumentError();
-	
+
 	memory_list_._remove_free_list_(block);
 
 	/* Get the neighbors of 'block' if they exist */
@@ -985,6 +979,9 @@ void sfree(void* p)
 	/* Check arguments */
 	if( p == NULL )
 		return;
+
+	if( memory_list_._get_mmd_(p)->_cookie_ != global_cookie )
+		exit(0xdeadbeef);
 
 	try
 	{
@@ -1066,6 +1063,7 @@ void* srealloc_helper_mmap_block(void* oldp, size_t size)
 	/* Insert the new block to the mmap list */
 	memory_list_._insert_mmap_list_(new_block);
 
+	new_block->_cookie_ = global_cookie;
 	return (char *)new_block + sizeof(MMD);
 }
 
@@ -1113,7 +1111,9 @@ void* srealloc_helper_wilderness(void* oldp, size_t size)
 	if( memmove((char*)merged + sizeof(MMD), oldp, original_block->size) != (char*)merged + sizeof(MMD) )
 		return NULL;
 	/* Insert to the used list */
+	merged->_cookie_ = global_cookie;
 	memory_list_._insert_used_list_(merged);
+
 
 	return (char*)merged + sizeof(MMD);
 }
@@ -1230,6 +1230,7 @@ void* srealloc_helper_normal_node(void* oldp, size_t size)
 		return NULL;
 					
 	/* insert eh new memory block to the used list */
+	merged->_cookie_=global_cookie;
 	memory_list_._insert_used_list_(merged);
 	return (char*)merged + sizeof(MMD);
 }
@@ -1248,6 +1249,10 @@ void* srealloc(void* oldp, size_t size)
 		{
 			return smalloc(size);
 		}
+
+		if( memory_list_._get_mmd_(oldp)->_cookie_ != global_cookie )
+			exit(0xdeadbeef);
+
 
 		MMD* original_block = memory_list_._get_mmd_(oldp);
 		if( original_block == NULL )
